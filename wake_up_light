@@ -1,14 +1,18 @@
 blueprint:
   name: ⏰ Wake up light
   description:
-    "\U0001F4E6 Modified from r3mcos3 Version 1.0.0 by zerosimonn. 
+    "Wake up Light, modified from r3mcos3 version 1.0.0 by zerosimonn. 
     Turn on lights before your android alarm goes off for a gentle wake-up! 
-    Ability to set active hours. \U0001F305\n"
+    Ability to set active hours.
+    Optional: ability to turn it on/off for the morning from the Dashboard.
+    Ability to select light brightness transition period. \n"
+
   domain: automation
   author: zerosimonn
   source_url: https://github.com/zerosimonn/blueprints/wake_up_light/wake_up_light.yaml
   homeassistant:
     min_version: 2025.12.0
+  
   input:
     alarm_sensor:
       name: ⏰ Next Alarm Sensor
@@ -41,20 +45,12 @@ blueprint:
       selector:
         select:
           options:
-            - label: 5 minutes before
-              value: -00:05:00
             - label: 10 minutes before
               value: -00:10:00
-            - label: 15 minutes before
-              value: -00:15:00
             - label: 20 minutes before
               value: -00:20:00
             - label: 30 minutes before
               value: -00:30:00
-            - label: 45 minutes before
-              value: -00:45:00
-            - label: 60 minutes before
-              value: -01:00:00
           mode: dropdown
           custom_value: false
           sort: false
@@ -79,30 +75,65 @@ blueprint:
           options:
             - label: All Days
               value: all
-            - label: Weekdays Only (Mon-Fri)
+            - label: Weekdays Only
               value: weekdays
-            - label: Weekends Only (Sat-Sun)
+            - label: Weekends Only
               value: weekends
           mode: dropdown
           custom_value: false
           sort: false
           multiple: false
+    transition_time:
+          name: ✨ Transition time
+          description: Minutes to reach max brightness. Note: over-ruled in case shorter Offset is selected. 
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: "minutes"
+              mode: slider
+    manual_control:
+      name: 🔘 Enable/Disable Toggle
+      description: "Optional: A helper (input_boolean) to enable/disable this wake-up light."
+      default: none
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+
 mode: single
 max_exceeded: silent
+
 variables:
   weekday_choice: !input weekday_selection
+  helper_entity: !input manual_control
+  offset_str: !input offset_before_alarm
+  offset_minutes: "{{ (offset_str.split(':')[1] | int) if ':' in offset_str else 5 }}"
+  transition_input: !input transition_time
+  # Safety: pick the smaller of the two numbers and convert to minutes.
+  final_transition_sec: "{{ [transition_input, offset_minutes] | min * 60 }}"
+
 trigger:
   - trigger: time
     at:
       entity_id: !input alarm_sensor
       offset: !input offset_before_alarm
+
 condition:
+  # Check if helper is on when is was selected
+  - condition: template
+    value_template: "{{ helper_entity == none or is_state(helper_entity, 'on') }}"
+    
+  # Check for day of the week
   - condition: template
     value_template:
       "{% set today = now().weekday() %} {% if weekday_choice == 'all'
       %}\n  true\n{% elif weekday_choice == 'weekdays' %}\n  {{ today < 5 }}\n{% elif
       weekday_choice == 'weekends' %}\n  {{ today >= 5 }}\n{% else %}\n  true\n{% endif
       %}\n"
+
 action:
   - action: light.turn_on
     target: !input lights_target
@@ -111,5 +142,5 @@ action:
   - action: light.turn_on
     target: !input lights_target
     data:
-      transition: 300 #5 minutes
+      transition: "{{ final_transition_sec }}"
       brightness_pct: !input brightness_pct
